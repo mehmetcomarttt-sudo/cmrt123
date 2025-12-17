@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comartoto - Şans Oyunu (7/48 & Küresel Sıralamalı)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Özelleştirilmiş Şatafatlı Font */
+        @import url('https://fonts.googleapis.com/css2?family=Trade+Winds&display=swap');
+        
+        :root {
+            /* Parlak Sarı, Kırmızı ve Mavi Tonları */
+            --primary-yellow: #FFD700; /* Altın Sarısı */
+            --secondary-red: #E74C3C;  /* Parlak Kırmızı */
+            --tertiary-blue: #3498DB;  /* Parlak Mavi */
+            --bg-dark: #1F2833;        /* Koyu Gri/Mavi (Arka Plan) */
+            --text-light: #ECF0F1;     /* Açık Gri (Yazı) */
+        }
+
+        body {
+            font-family: 'Trade Winds', cursive;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        /* Top Stili - Kompakt Boyut */
+        .ball {
+            width: 2.5rem; /* Öncekinden daha küçük */
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            margin: 0.15rem; /* Daha dar margin */
+            cursor: pointer;
+            font-size: 1rem; /* Daha küçük font */
+            font-weight: bold;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
+            border: 3px solid rgba(255, 255, 255, 0.5);
+            line-height: 1; 
+        }
+
+        /* Kupondaki Seçili Top Stili */
+        .selected-ball {
+            background-color: var(--secondary-red); /* Kırmızı Seçim */
+            color: white;
+            transform: scale(1.1);
+            border-color: var(--primary-yellow);
+        }
+
+        /* Çekiliş Topu Renkleri */
+        .draw-ball {
+            width: 3rem; 
+            height: 3rem;
+            margin: 0.5rem;
+            border: 4px solid white;
+            box-shadow: 0 0 10px white;
+        }
+        .draw-ball-1 { background-color: var(--primary-yellow); color: var(--bg-dark); }
+        .draw-ball-2 { background-color: var(--secondary-red); color: white; }
+        .draw-ball-3 { background-color: var(--tertiary-blue); color: white; }
+        .draw-ball-4 { background-color: #27AE60; color: white; } 
+        .draw-ball-5 { background-color: #9B59B6; color: white; } 
+        .draw-ball-6 { background-color: #F39C12; color: white; } 
+        .draw-ball-7 { background-color: #1ABC9C; color: white; } 
+
+        /* Kazanan Top (Yeşil Yanma Etkisi) */
+        .winning-ball {
+            background-color: #2ECC71 !important; /* Parlak Yeşil */
+            color: white !important;
+            box-shadow: 0 0 15px #2ECC71, 0 0 10px #2ECC71 !important;
+            animation: pulse-green 1s infinite alternate;
+        }
+
+        @keyframes pulse-green {
+            from { box-shadow: 0 0 10px #2ECC71, 0 0 5px #2ECC71; }
+            to { box-shadow: 0 0 20px #2ECC71, 0 0 15px #2ECC71; }
+        }
+
+        /* Şatafatlı Başlık Stili */
+        .comartoto-title {
+            color: var(--primary-yellow);
+            text-shadow: 
+                -1px -1px 0 var(--secondary-red),  
+                1px -1px 0 var(--secondary-red),
+                -1px 1px 0 var(--secondary-red),
+                1px 1px 0 var(--secondary-red),
+                0 0 20px var(--tertiary-blue);
+        }
+
+        /* Kupon Kartı */
+        .coupon-card {
+            background-color: #2c3e50;
+            border: 3px solid var(--tertiary-blue);
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.5), inset 0 0 5px rgba(255, 215, 0, 0.3);
+        }
+
+        /* Sıralama Renkleri */
+        .leaderboard-item:nth-child(1) { background-color: #FFD70030; font-weight: bold; }
+        .leaderboard-item:nth-child(2) { background-color: #C0C0C030; }
+        .leaderboard-item:nth-child(3) { background-color: #CD7F3230; }
+        .current-user-row {
+             background-color: #3498DB40 !important; /* Mavi Vurgu */
+             border: 2px solid var(--tertiary-blue);
+             font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+    <!-- Firebase SDK'ları -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, getDoc, onSnapshot, collection, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        
+        // Log seviyesini Debug yap
+        setLogLevel('Debug');
+
+        // Global Değişkenler
+        let app, db, auth;
+        let userId = null;
+        let userName = null;
+        let isAuthReady = false;
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // __firebase_config string olarak geldiği için parse ediyoruz
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        // Firestore Paths (public path, herkesin görebilmesi için)
+        const getPlayerDocRef = (uid) => doc(db, `/artifacts/${appId}/public/data/players`, uid);
+        const getPlayersCollectionRef = () => collection(db, `/artifacts/${appId}/public/data/players`);
+
+        /**
+         * Firebase başlatma, kimlik doğrulama ve veritabanı dinleme işlemini yapar.
+         */
+        window.initializeFirebase = async (tempName) => {
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase config is missing.");
+                window.setMessage("Hata: Firebase bağlantısı kurulamadı.", 'red');
+                return;
+            }
+
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // Kimlik doğrulama dinleyicisi
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    isAuthReady = true;
+                    console.log("Firebase Auth Hazır. UID:", userId);
+                    
+                    // Oyuncu verilerini çek veya oluştur
+                    await initializePlayer(userId, tempName);
+                    
+                    // Giriş ekranını gizle, oyun ekranını göster
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('game-container').classList.remove('hidden');
+                    
+                    // Sıralamayı dinlemeye başla
+                    window.startLeaderboardListener();
+                    
+                    // Oyunu başlat
+                    window.resetGame();
+                } else {
+                    isAuthReady = false;
+                    userId = null;
+                }
+            });
+
+            // Oturum Açma (Custom Token varsa, yoksa Anonim)
+            try {
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    await signInWithCustomToken(auth, token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase Authentication Error:", error);
+                window.setMessage(`Giriş hatası: ${error.message}`, 'red');
+            }
+        };
+
+        /**
+         * Firestore'da oyuncu kaydını oluşturur veya günceller.
+         */
+        async function initializePlayer(uid, name) {
+            const playerRef = getPlayerDocRef(uid);
+            const playerDoc = await getDoc(playerRef);
+
+            if (playerDoc.exists()) {
+                const data = playerDoc.data();
+                userName = data.name;
+                // UID'yi arayüzde göster (Hata ayıklama ve çoklu oyuncu tespiti için)
+                document.getElementById('current-user-id').textContent = uid; 
+            } else {
+                // Eğer yeni bir kullanıcıysa, girilen adla kaydet
+                userName = name || `Anonim Oyuncu ${Math.floor(Math.random() * 1000)}`;
+                const initialData = {
+                    name: userName,
+                    totalWinnings: 0,
+                    lastPlayed: new Date().getTime()
+                };
+                await setDoc(playerRef, initialData);
+                document.getElementById('current-user-id').textContent = uid;
+            }
+            window.userName = userName;
+            document.getElementById('current-user-name').textContent = userName;
+        }
+
+        /**
+         * Toplam kazancı veritabanında günceller.
+         */
+        window.updateTotalWinnings = async (winnings) => {
+            if (!isAuthReady || !userId || winnings <= 0) {
+                console.warn("Kazanç kaydedilemiyor: Auth hazır değil veya kazanç 0.", {isAuthReady, userId, winnings});
+                return;
+            }
+
+            const playerRef = getPlayerDocRef(userId);
+
+            try {
+                // Firestore increment (atomik artırma) kullanılarak kazanç güncellenir
+                await updateDoc(playerRef, {
+                    totalWinnings: increment(winnings),
+                    lastPlayed: new Date().getTime()
+                });
+                console.log(`Kazanç başarıyla güncellendi: +${winnings} TL`);
+            } catch (error) {
+                console.error("Kazanç güncellenirken hata oluştu:", error);
+                window.setMessage("Hata: Kazanç veritabanına kaydedilemedi.", 'red');
+            }
+        };
+
+        /**
+         * Sıralama tablosunu gerçek zamanlı dinler.
+         */
+        window.startLeaderboardListener = () => {
+            if (!db) return;
+            const playersRef = getPlayersCollectionRef();
+
+            onSnapshot(playersRef, (snapshot) => {
+                const players = [];
+                snapshot.forEach(doc => {
+                    players.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Toplam kazanca göre büyükten küçüğe sırala (client-side)
+                players.sort((a, b) => b.totalWinnings - a.totalWinnings);
+                
+                // Sıralama tablosunu render et
+                renderLeaderboard(players);
+            }, (error) => {
+                console.error("Sıralama dinlenirken hata oluştu:", error);
+            });
+        };
+
+        /**
+         * Sıralama tablosunu HTML olarak render eder.
+         */
+        function renderLeaderboard(players) {
+            const leaderboardBody = document.getElementById('leaderboard-body');
+            leaderboardBody.innerHTML = '';
+
+            players.slice(0, 10).forEach((player, index) => { // İlk 10 oyuncu
+                const isCurrentUser = player.id === userId;
+                const row = document.createElement('tr');
+                
+                let rowClasses = ['leaderboard-item', 'transition-all', 'duration-300', 'hover:bg-gray-600', 'text-sm'];
+                if (isCurrentUser) {
+                    rowClasses.push('current-user-row');
+                }
+                row.classList.add(...rowClasses);
+
+                const winningsFormatted = (player.totalWinnings || 0).toLocaleString('tr-TR');
+
+                row.innerHTML = `
+                    <td class="p-2 text-center">${index + 1}</td>
+                    <td class="p-2">${player.name} ${isCurrentUser ? '(Siz)' : ''}</td>
+                    <td class="p-2 text-right text-yellow-300">${winningsFormatted} TL</td>
+                `;
+                leaderboardBody.appendChild(row);
+            });
+        }
+    </script>
+
+
+    <!-- Giriş Ekranı -->
+    <div id="login-screen" class="absolute inset-0 bg-gray-900/95 flex justify-center items-center z-50 p-4">
+        <div class="bg-gray-800 p-8 rounded-xl w-full max-w-md text-center shadow-2xl border-4 border-yellow-500">
+            <h1 class="comartoto-title text-4xl mb-6">COMARTOTO</h1>
+            <p class="text-lg mb-4 text-yellow-300">Lütfen adınızı girin ve şans oyununa başlayın! (7/48)</p>
+            
+            <input type="text" id="player-name-input" placeholder="Adınız Soyadınız (Max 20 Karakter)" maxlength="20" class="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-yellow-400">
+            
+            <button id="start-game-button" disabled class="mt-6 w-full p-3 text-xl rounded-lg text-white transition duration-300 bg-red-600 hover:bg-red-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                Oyunu Başlat
+            </button>
+            <p class="text-sm mt-3 text-gray-400">Verileriniz küresel sıralama tablosuna kaydedilecektir.</p>
+        </div>
+    </div>
+
+    <!-- Ana Oyun İçeriği -->
+    <div id="game-container" class="max-w-6xl w-full mx-auto p-4 md:p-8 space-y-8 hidden">
+
+        <!-- Başlık ve Kullanıcı Bilgisi -->
+        <header class="text-center">
+            <h1 class="comartoto-title text-5xl md:text-6xl mb-2">COMARTOTO 7/48</h1>
+            <p class="text-lg text-yellow-300">Hoş Geldiniz, <span id="current-user-name" class="text-white font-bold"></span>! </p>
+            <p class="text-xs text-gray-500">Kullanıcı ID: <span id="current-user-id"></span> (Sıralama Tespiti İçin)</p>
+        </header>
+
+        <!-- Ana Oyun Alanı: Kupon ve Sıralama Yan Yana -->
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Kupon Doldurma Alanı (Sol Kolon) -->
+            <section class="lg:col-span-2 space-y-6">
+                <h2 class="text-3xl text-primary-yellow border-b-2 border-primary-yellow pb-2">Kupon Doldur</h2>
+                
+                <!-- Sayı Seçim Alanı: Kompakt ızgara -->
+                <div id="number-grid" class="p-4 rounded-lg bg-gray-800 shadow-xl grid grid-cols-8 md:grid-cols-12 gap-1 max-h-[300px] overflow-y-auto">
+                    <!-- Toplar JS ile doldurulacak -->
+                </div>
+
+                <!-- Kupon Kontrolleri -->
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <button onclick="addCoupon()" class="w-full sm:w-1/3 p-3 text-lg rounded-lg text-white transition duration-300 bg-red-600 hover:bg-red-700 shadow-lg hover:shadow-xl transform hover:scale-[1.01]">
+                        Kuponu Ekle
+                    </button>
+                    <button onclick="quickPick()" class="w-full sm:w-1/3 p-3 text-lg rounded-lg text-white transition duration-300 bg-yellow-600 hover:bg-yellow-700 shadow-lg">
+                        Otomatik Seç (7)
+                    </button>
+                    <button onclick="startDraw()" id="draw-button" disabled class="w-full sm:w-1/3 p-3 text-lg rounded-lg text-white transition duration-300 bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transform hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed">
+                        Çekilişi Başlat (0 Kupon)
+                    </button>
+                </div>
+
+                <!-- Mesaj Kutusu -->
+                <div id="message-box" class="p-4 text-center rounded-lg text-yellow-300 bg-gray-700 font-normal">
+                    Lütfen 1'den 48'e kadar 7 sayı seçin ve "Kuponu Ekle" butonuna basın.
+                </div>
+            </section>
+
+            <!-- Çekiliş, Sonuç ve Sıralama Alanı (Sağ Kolon) -->
+            <section class="lg:col-span-1 space-y-6">
+                
+                <!-- İKRAMİYE TABLOSU (Kenarda/Sağda) -->
+                <div class="p-4 rounded-lg bg-gray-800 shadow-xl border-2 border-purple-500">
+                    <h3 class="text-xl text-yellow-300 mb-2 border-b border-gray-700 pb-1">İkramiye Tablosu (7/48)</h3>
+                    <ul class="space-y-1 text-sm">
+                        <li class="flex justify-between border-b border-gray-700 py-1"><span>7 Bildiniz</span> <span class="text-green-400">5.000.000 TL</span></li>
+                        <li class="flex justify-between border-b border-gray-700 py-1"><span>6 Bildiniz</span> <span class="text-green-300">500.000 TL</span></li>
+                        <li class="flex justify-between border-b border-gray-700 py-1"><span>5 Bildiniz</span> <span class="text-yellow-400">50.000 TL</span></li>
+                        <li class="flex justify-between border-b border-gray-700 py-1"><span>4 Bildiniz</span> <span class="text-orange-400">5.000 TL</span></li>
+                        <li class="flex justify-between border-b border-gray-700 py-1"><span>3 Bildiniz</span> <span class="text-red-400">1.000 TL</span></li>
+                        <li class="flex justify-between"><span>2 Bildiniz</span> <span class="text-red-300">100 TL</span></li>
+                    </ul>
+                </div>
+
+                <!-- Çekiliş Sonuçları -->
+                <h2 class="text-xl text-primary-yellow border-b-2 border-primary-yellow pb-2">Son Çekiliş</h2>
+                <div id="draw-sphere" class="p-4 rounded-lg bg-gray-800 flex flex-col items-center justify-center text-center shadow-xl">
+                    <p id="draw-status" class="text-md text-yellow-400">Çekiliş Bekleniyor...</p>
+                    <div id="drawn-balls" class="flex flex-wrap justify-center mt-3">
+                        <!-- Çekilen toplar buraya gelecek -->
+                    </div>
+                </div>
+
+                <!-- Sıralama Tablosu -->
+                <h2 class="text-xl text-primary-yellow border-b-2 border-primary-yellow pb-2">Küresel Sıralama (Top 10)</h2>
+                <div class="p-4 rounded-lg bg-gray-800 shadow-xl overflow-x-auto">
+                    <table class="min-w-full text-left">
+                        <thead>
+                            <tr class="text-yellow-300 border-b border-gray-600">
+                                <th class="p-2 w-1/6">#</th>
+                                <th class="p-2 w-3/6">Oyuncu Adı</th>
+                                <th class="p-2 w-2/6 text-right">Toplam Kazanç</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboard-body" class="divide-y divide-gray-700">
+                            <!-- Sıralama verileri JS ile doldurulacak -->
+                        </tbody>
+                    </table>
+                </div>
+                
+            </section>
+        </main>
+
+        <!-- Oynanan Kuponlar Alanı (Alt Bölüm) -->
+        <section>
+            <h2 class="text-3xl text-primary-yellow border-b-2 border-primary-yellow pb-2 mb-4">Oynanan Kuponlar (<span id="coupon-count">0</span>)</h2>
+            <div id="coupons-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Kuponlar buraya gelecek -->
+            </div>
+            <button onclick="resetGame(true)" class="mt-8 w-full p-3 text-lg rounded-lg text-white transition duration-300 bg-gray-600 hover:bg-gray-700 shadow-lg">
+                Oyunu Sıfırla (Kuponları Temizle)
+            </button>
+        </section>
+
+    </div>
+
+    <script>
+        // Sabitler
+        const MAX_NUMBER = 48; // Top sayısı 48
+        const NUM_TO_SELECT = 7; 
+        const NUMBER_GRID = document.getElementById('number-grid');
+        const MESSAGE_BOX = document.getElementById('message-box');
+        const COUPONS_CONTAINER = document.getElementById('coupons-container');
+        const DRAW_BUTTON = document.getElementById('draw-button');
+        const DRAWN_BALLS_CONTAINER = document.getElementById('drawn-balls');
+        const COUPON_COUNT_SPAN = document.getElementById('coupon-count');
+        const DRAW_STATUS = document.getElementById('draw-status');
+        const PLAYER_NAME_INPUT = document.getElementById('player-name-input');
+        const START_GAME_BUTTON = document.getElementById('start-game-button');
+
+        // Oyun Durumu
+        window.tempUserName = ''; 
+        let selectedNumbers = [];
+        let playedCoupons = [];
+        let drawnNumbers = [];
+        let isDrawActive = false;
+
+        // İkramiye Verileri 
+        const prizeValues = {
+            7: 5000000,
+            6: 500000,
+            5: 50000,
+            4: 5000,
+            3: 1000,
+            2: 100
+        };
+        
+        // --- Giriş Ekranı Kontrolleri ---
+
+        PLAYER_NAME_INPUT.addEventListener('input', () => {
+            const name = PLAYER_NAME_INPUT.value.trim();
+            START_GAME_BUTTON.disabled = name.length < 3;
+            window.tempUserName = name;
+        });
+
+        START_GAME_BUTTON.addEventListener('click', () => {
+            if (window.tempUserName.length >= 3) {
+                if (typeof window.initializeFirebase === 'function') {
+                    window.initializeFirebase(window.tempUserName);
+                } else {
+                    window.setMessage("Hata: Firebase başlatma fonksiyonu bulunamadı.", 'red');
+                }
+            }
+        });
+        
+        // --- Başlangıç Fonksiyonları ---
+
+        /**
+         * 1'den 48'e kadar sayı toplarını oluşturur ve ızgaraya ekler.
+         */
+        function initializeNumberGrid() {
+            NUMBER_GRID.innerHTML = '';
+            for (let i = 1; i <= MAX_NUMBER; i++) {
+                const ball = document.createElement('div');
+                // Toplar daha küçük, 12'li sütun düzeninde daha iyi sığar
+                ball.textContent = i;
+                ball.classList.add('ball', 'bg-gray-600', 'hover:bg-gray-500', 'text-text-light');
+                ball.dataset.number = i;
+                ball.onclick = () => toggleSelection(i, ball);
+                NUMBER_GRID.appendChild(ball);
+            }
+        }
+
+        // --- Kupon Doldurma Fonksiyonları ---
+
+        /**
+         * Topa tıklandığında seçimi açıp kapatır.
+         */
+        function toggleSelection(number, ballElement) {
+            if (isDrawActive) {
+                window.setMessage("Çekiliş devam ederken kupon dolduramazsınız.", 'red');
+                return;
+            }
+
+            const index = selectedNumbers.indexOf(number);
+
+            if (index > -1) {
+                // Seçimden çıkar
+                selectedNumbers.splice(index, 1);
+                ballElement.classList.remove('selected-ball');
+                ballElement.classList.add('bg-gray-600');
+            } else {
+                // Seçime ekle (limit kontrolü ile)
+                if (selectedNumbers.length < NUM_TO_SELECT) {
+                    selectedNumbers.push(number);
+                    ballElement.classList.add('selected-ball');
+                    ballElement.classList.remove('bg-gray-600');
+                } else {
+                    window.setMessage(`En fazla ${NUM_TO_SELECT} sayı seçebilirsiniz.`, 'yellow');
+                }
+            }
+            updateMessage();
+        }
+
+        /**
+         * Rastgele kupon doldurur (Otomatik Seç)
+         */
+        function quickPick() {
+            if (isDrawActive) {
+                window.setMessage("Çekiliş devam ederken otomatik seçim yapamazsınız.", 'red');
+                return;
+            }
+            
+            clearSelection(false); // Sadece seçimi temizle, UI'ı değil
+            
+            const allNumbers = Array.from({ length: MAX_NUMBER }, (_, i) => i + 1);
+            
+            // Rastgele 7 benzersiz sayı seç
+            while (selectedNumbers.length < NUM_TO_SELECT) {
+                const randomIndex = Math.floor(Math.random() * allNumbers.length);
+                const number = allNumbers.splice(randomIndex, 1)[0];
+                selectedNumbers.push(number);
+            }
+
+            // UI'ı güncelle
+            selectedNumbers.forEach(num => {
+                const ballElement = document.querySelector(`[data-number="${num}"]`);
+                if (ballElement) {
+                    ballElement.classList.add('selected-ball');
+                    ballElement.classList.remove('bg-gray-600');
+                }
+            });
+
+            selectedNumbers.sort((a, b) => a - b);
+            updateMessage();
+        }
+
+        /**
+         * Mesaj kutusunu günceller.
+         */
+        function updateMessage() {
+            const remaining = NUM_TO_SELECT - selectedNumbers.length;
+            if (remaining > 0) {
+                window.setMessage(`Lütfen ${remaining} sayı daha seçin. (1-${MAX_NUMBER})`, 'yellow');
+            } else {
+                window.setMessage("7 sayıyı seçtiniz. Kuponu ekleyebilirsiniz.", 'green');
+            }
+        }
+
+        /**
+         * Kuponu oynanan kupon listesine ekler.
+         */
+        function addCoupon() {
+            if (isDrawActive) {
+                window.setMessage("Çekiliş devam ederken yeni kupon ekleyemezsiniz.", 'red');
+                return;
+            }
+
+            if (selectedNumbers.length === NUM_TO_SELECT) {
+                const newCoupon = {
+                    id: Date.now(),
+                    numbers: [...selectedNumbers].sort((a, b) => a - b),
+                    matchCount: 0,
+                    prizeValue: 0,
+                    prizeText: "0 TL",
+                    isDrawn: false
+                };
+                playedCoupons.push(newCoupon);
+                
+                clearSelection(true); // Seçimi temizle ve mesajı güncelle
+                
+                renderCoupons();
+                updateDrawButtonState();
+                window.setMessage("Kupon başarıyla eklendi! Yeni seçim yapabilirsiniz.", 'green');
+            } else {
+                window.setMessage(`Lütfen tam olarak ${NUM_TO_SELECT} sayı seçin.`, 'red');
+            }
+        }
+
+        /**
+         * Seçimi temizler (seçilen topları sıfırlar).
+         * @param {boolean} updateMsg - Mesaj kutusunu güncelle.
+         */
+        function clearSelection(updateMsg = false) {
+            selectedNumbers = [];
+            document.querySelectorAll('.ball').forEach(ball => {
+                ball.classList.remove('selected-ball');
+                ball.classList.add('bg-gray-600');
+            });
+            if (updateMsg) updateMessage();
+        }
+
+        // --- Kupon Görüntüleme Fonksiyonları ---
+
+        /**
+         * Oynanan kuponları yeniden çizer.
+         */
+        function renderCoupons() {
+            COUPONS_CONTAINER.innerHTML = '';
+            playedCoupons.forEach((coupon, index) => {
+                const couponDiv = createCouponCard(coupon, index);
+                COUPONS_CONTAINER.appendChild(couponDiv);
+            });
+            COUPON_COUNT_SPAN.textContent = playedCoupons.length;
+        }
+
+        /**
+         * Tek bir kupon için HTML elementi oluşturur.
+         */
+        function createCouponCard(coupon, index) {
+            const card = document.createElement('div');
+            card.classList.add('coupon-card', 'p-4', 'rounded-xl', 'space-y-3', 'relative', 'shadow-lg');
+            card.dataset.couponId = coupon.id;
+
+            let statusClass = 'text-yellow-300';
+            let statusText = 'Çekiliş Bekleniyor';
+            let matchText = '';
+
+            if (coupon.isDrawn) {
+                if (coupon.matchCount >= 2) { 
+                    statusClass = 'text-green-400';
+                    statusText = `Tebrikler! ${coupon.matchCount} Bildiniz! İkramiye: ${coupon.prizeText}`;
+                } else {
+                    statusClass = 'text-red-400';
+                    statusText = 'İkramiye Yok (Az Kaldı!)';
+                }
+                matchText = ` (${coupon.matchCount} Eşleşme)`;
+            }
+
+            card.innerHTML = `
+                <h4 class="text-xl font-bold border-b border-gray-600 pb-1 flex justify-between items-center">
+                    <span>Kupon #${index + 1}</span>
+                    <button onclick="deleteCoupon(${coupon.id})" class="text-red-500 hover:text-red-400 text-sm font-normal transition duration-150">
+                        <!-- Çöp Kutusu Simgesi -->
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </h4>
+                <div class="flex flex-wrap justify-start">
+                    ${coupon.numbers.map(n => {
+                        let ballClass = 'bg-gray-600';
+                        if (coupon.isDrawn && drawnNumbers.includes(n)) {
+                            ballClass = 'winning-ball';
+                        }
+                        return `<div class="ball text-white text-xs ${ballClass} w-8 h-8">${n}</div>`;
+                    }).join('')}
+                </div>
+                <p class="text-sm font-semibold ${statusClass}">${statusText}${matchText}</p>
+            `;
+            return card;
+        }
+        
+        /**
+         * Kupon silme işlemi.
+         */
+        function deleteCoupon(id) {
+            if (isDrawActive) {
+                window.setMessage("Çekiliş devam ederken kupon silemezsiniz.", 'red');
+                return;
+            }
+            playedCoupons = playedCoupons.filter(coupon => coupon.id !== id);
+            renderCoupons();
+            updateDrawButtonState();
+        }
+
+        // --- Çekiliş Fonksiyonları ---
+
+        /**
+         * Çekiliş butonunun durumunu kupon sayısına göre günceller.
+         */
+        function updateDrawButtonState() {
+            const count = playedCoupons.length;
+            DRAW_BUTTON.disabled = count === 0 || isDrawActive;
+            DRAW_BUTTON.textContent = count === 0 
+                ? 'Çekilişi Başlat (0 Kupon)' 
+                : isDrawActive ? 'Çekiliş Yapılıyor...' : `Çekilişi Başlat (${count} Kupon)`;
+        }
+
+        /**
+         * Çekilişi başlatır ve sonuçları gösterir.
+         */
+        async function startDraw() {
+            if (playedCoupons.length === 0 || isDrawActive) return;
+
+            isDrawActive = true;
+            updateDrawButtonState();
+            clearSelection(false);
+            
+            // Kuponları sıfırla
+            playedCoupons.forEach(c => {
+                c.isDrawn = false;
+                c.matchCount = 0;
+                c.prizeValue = 0;
+                c.prizeText = "0 TL";
+            });
+            renderCoupons();
+            
+            DRAWN_BALLS_CONTAINER.innerHTML = '';
+            drawnNumbers = [];
+            DRAW_STATUS.textContent = "Küre Dönüyor, Toplar Çekiliyor...";
+            window.setMessage("Şansınız bol olsun! Çekiliş başladı.", 'blue');
+
+            // Rastgele 7 benzersiz sayı seç (1-48 aralığında)
+            const allNumbers = Array.from({ length: MAX_NUMBER }, (_, i) => i + 1);
+            
+            for (let i = 0; i < NUM_TO_SELECT; i++) { 
+                const colorClass = `draw-ball-${(i % 7) + 1}`; 
+                const randomIndex = Math.floor(Math.random() * allNumbers.length);
+                const drawnNumber = allNumbers.splice(randomIndex, 1)[0];
+                drawnNumbers.push(drawnNumber);
+
+                await simulateBallDraw(drawnNumber, colorClass, i);
+            }
+            
+            DRAW_STATUS.textContent = "Çekiliş Tamamlandı!";
+            processResults();
+            isDrawActive = false;
+            updateDrawButtonState();
+        }
+
+        /**
+         * Tek bir topun çekiliş animasyonunu simüle eder.
+         */
+        function simulateBallDraw(number, colorClass, index) {
+            return new Promise(resolve => {
+                const ball = document.createElement('div');
+                ball.textContent = number;
+                ball.classList.add('ball', 'text-white', 'draw-ball', colorClass, 'transform', 'scale-0', 'opacity-0');
+                
+                DRAWN_BALLS_CONTAINER.appendChild(ball);
+                
+                setTimeout(() => {
+                    ball.classList.remove('scale-0', 'opacity-0');
+                    ball.classList.add('scale-100', 'opacity-100');
+                    ball.style.transition = 'transform 0.5s ease-out, opacity 0.5s ease-out';
+                    
+                    setTimeout(resolve, 1000); 
+                }, 100 + index * 500); 
+            });
+        }
+
+        /**
+         * Tüm kuponlardaki sonuçları hesaplar ve ikramiyeleri belirler.
+         */
+        function processResults() {
+            let sessionWinnings = 0;
+            const winningNumbers = new Set(drawnNumbers);
+
+            playedCoupons.forEach(coupon => {
+                let matchCount = 0;
+                coupon.numbers.forEach(n => {
+                    if (winningNumbers.has(n)) {
+                        matchCount++;
+                    }
+                });
+
+                coupon.isDrawn = true;
+                coupon.matchCount = matchCount;
+                
+                if (prizeValues[matchCount]) {
+                    const prize = prizeValues[matchCount];
+                    coupon.prizeValue = prize;
+                    coupon.prizeText = prize.toLocaleString('tr-TR') + ' TL';
+                    sessionWinnings += prize;
+                } else {
+                    coupon.prizeValue = 0;
+                    coupon.prizeText = "0 TL";
+                }
+            });
+
+            renderCoupons();
+            
+            if (sessionWinnings > 0) {
+                // Kazanılan toplam tutarı veritabanına kaydet
+                if(typeof window.updateTotalWinnings === 'function') {
+                    window.updateTotalWinnings(sessionWinnings);
+                }
+                
+                window.setMessage(`TEBRİKLER! Bu çekilişten toplam kazancınız: ${sessionWinnings.toLocaleString('tr-TR')} TL.`, 'green');
+            } else {
+                window.setMessage("Bir sonraki çekilişte daha çok şans dileriz!", 'red');
+            }
+        }
+
+        // --- Yardımcı Fonksiyonlar ---
+
+        // Mesaj kutusunun temel sabit sınıfları
+        const BASE_MESSAGE_CLASSES = ['p-4', 'text-center', 'rounded-lg', 'font-normal', 'transition', 'duration-300'];
+
+        /**
+         * Mesaj kutusunu günceller ve renk kodu ile stili belirler.
+         */
+        window.setMessage = function(text, type) {
+            MESSAGE_BOX.textContent = text;
+            
+            MESSAGE_BOX.className = '';
+            MESSAGE_BOX.classList.add(...BASE_MESSAGE_CLASSES);
+            
+            let colorClass;
+            switch (type) {
+                case 'green':
+                    colorClass = 'text-green-400 bg-green-900/50 border border-green-400';
+                    break;
+                case 'red':
+                    colorClass = 'text-red-400 bg-red-900/50 border border-red-400';
+                    break;
+                case 'blue':
+                    colorClass = 'text-blue-400 bg-blue-900/50 border border-blue-400';
+                    break;
+                case 'yellow':
+                default:
+                    colorClass = 'text-yellow-300 bg-gray-700';
+                    break;
+            }
+            
+            colorClass.split(' ').forEach(cls => {
+                if (cls) MESSAGE_BOX.classList.add(cls);
+            });
+        }
+
+        /**
+         * Oyunu başlangıç durumuna sıfırlar.
+         */
+        window.resetGame = function() {
+            selectedNumbers = [];
+            playedCoupons = [];
+            drawnNumbers = [];
+            isDrawActive = false;
+
+            initializeNumberGrid();
+            renderCoupons();
+            updateDrawButtonState();
+            
+            DRAWN_BALLS_CONTAINER.innerHTML = '';
+            DRAW_STATUS.textContent = "Çekiliş Bekleniyor...";
+            window.setMessage(`Oyun hazır. Lütfen ${NUM_TO_SELECT} sayılık yeni kuponunuzu doldurun. (1-${MAX_NUMBER})`, 'yellow');
+        }
+
+        // Sayfa yüklendiğinde başlat (Giriş ekranı görünür)
+        document.addEventListener('DOMContentLoaded', () => {
+            // Giriş ekranında kal, oyun içeriği gizli
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('game-container').classList.add('hidden');
+            
+            // Oyun sıfırlama fonksiyonunu çağır (UI'ı hazırlar)
+            initializeNumberGrid();
+        });
+    </script>
+</body>
+</html>
